@@ -34,7 +34,7 @@ export class BootScene extends Phaser.Scene {
     g.closePath();
     g.fillPath();
 
-    const title = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 150, '夏令营行李快检', {
+    const title = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 150, '澶忎护钀ヨ鏉庡揩妫€', {
       fontSize: '36px',
       fontFamily: 'Arial, sans-serif',
       color: '#ffffff',
@@ -42,15 +42,19 @@ export class BootScene extends Phaser.Scene {
     });
     title.setOrigin(0.5);
 
-    const subtitle = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 200, '资源加载中...', {
+    const subtitle = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 200, '璧勬簮鍔犺浇涓?..', {
       fontSize: '18px',
       fontFamily: 'Arial, sans-serif',
       color: '#aaaaaa',
     });
     subtitle.setOrigin(0.5);
 
-    this.time.delayedCall(500, () => {
-      this.scene.start('MenuScene');
+    this.time.addEvent({
+      delay: 500,
+      callback: () => {
+        this.scene.start('MenuScene');
+      },
+      callbackScope: this,
     });
   }
 }

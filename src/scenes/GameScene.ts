@@ -17,9 +17,9 @@ const ZONE_COLORS: Record<ItemCategory, number> = {
 };
 
 const ZONE_LABELS: Record<ItemCategory, string> = {
-  allowed: '✅ 可入营',
-  inspect: '🔍 需开箱',
-  prohibited: '🚫 禁止携带',
+  allowed: '鉁?鍙叆钀?,
+  inspect: '馃攳 闇€寮€绠?,
+  prohibited: '馃毇 绂佹鎼哄甫',
 };
 
 export class GameScene extends Phaser.Scene {
@@ -35,6 +35,7 @@ export class GameScene extends Phaser.Scene {
   private targetCount: number = 15;
   private levelStartTime: number = 0;
   private conveyorBelt!: Phaser.GameObjects.Graphics;
+  private conveyorArrows!: Phaser.GameObjects.Graphics;
   private zones: { category: ItemCategory; x: number; y: number; w: number; h: number; graphics: Phaser.GameObjects.Graphics }[] = [];
   private scoreText!: Phaser.GameObjects.Text;
   private countText!: Phaser.GameObjects.Text;
@@ -47,6 +48,7 @@ export class GameScene extends Phaser.Scene {
   private supervisorOverlay: Phaser.GameObjects.Container | null = null;
   private conveyorOffset: number = 0;
   private timeLimitSeconds: number = 120;
+  private lastSpawnTime: number = 0;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -60,71 +62,100 @@ export class GameScene extends Phaser.Scene {
     this.supervisorReviews = 0;
     this.processedItems = [];
     this.currentItem = null;
+    this.itemQueue = [];
     this.processedCount = 0;
+    this.targetCount = 15;
     this.isSupervisorReview = false;
     this.supervisorOverlay = null;
     this.finished = false;
+    this.conveyorOffset = 0;
+    this.lastSpawnTime = 0;
+    this.timeLimitSeconds = 120;
+    this.zones = [];
   }
 
   create() {
-    const level = LEVELS[this.levelIndex];
-    this.targetCount = level.targetCount;
-    this.timeLimitSeconds = level.timeLimitSeconds;
-    this.levelStartTime = this.time.now;
+    try {
+      const level = LEVELS[this.levelIndex];
+      this.targetCount = level.targetCount;
+      this.timeLimitSeconds = level.timeLimitSeconds;
+      this.levelStartTime = this.time.now;
 
-    this.cameras.main.setBackgroundColor('#0a0a1a');
+      this.cameras.main.setBackgroundColor('#0a0a1a');
 
-    this.buildConveyorBelt();
-    this.buildZones();
-    this.buildHUD();
-    this.buildRuleHint(level);
+      this.buildConveyorBelt();
+      this.buildZones();
+      this.buildHUD();
+      this.buildRuleHint(level);
 
-    this.itemQueue = this.generateItemQueue(level);
-    this.time.delayedCall(800, () => this.spawnNextItem());
+      this.itemQueue = this.generateItemQueue(level);
+      console.log('GameScene created, queue length:', this.itemQueue.length);
+
+      this.time.addEvent({
+        delay: 800,
+        callback: this.spawnNextItem,
+        callbackScope: this,
+      });
+    } catch (e) {
+      console.error('Error in GameScene create:', e);
+    }
   }
 
   update(_time: number, _delta: number) {
-    if (this.finished) return;
+    try {
+      if (this.finished) return;
 
-    this.conveyorOffset += 0.5;
-    this.drawConveyorBelt();
+      this.conveyorOffset += 0.5;
+      if (this.conveyorBelt && this.conveyorBelt.active) {
+        this.drawConveyorBelt();
+      }
 
-    if (this.processedCount >= this.targetCount) {
-      this.finishLevel();
-      return;
-    }
+      if (this.processedCount >= this.targetCount) {
+        this.finishLevel();
+        return;
+      }
 
-    const elapsed = (this.time.now - this.levelStartTime) / 1000;
-    const remaining = Math.max(0, this.timeLimitSeconds - elapsed);
-    this.timerText.setText(`⏱ ${Math.ceil(remaining)}s`);
+      const elapsed = (this.time.now - this.levelStartTime) / 1000;
+      const remaining = Math.max(0, this.timeLimitSeconds - elapsed);
+      if (this.timerText && this.timerText.active) {
+        this.timerText.setText(`鈴?${Math.ceil(remaining)}s`);
 
-    const ratio = remaining / this.timeLimitSeconds;
-    let timerColor = '#f39c12';
-    if (ratio > 0.5) timerColor = '#2ecc71';
-    else if (ratio > 0.2) timerColor = '#f39c12';
-    else timerColor = '#e74c3c';
-    this.timerText.setColor(timerColor);
+        const ratio = remaining / this.timeLimitSeconds;
+        let timerColor = '#f39c12';
+        if (ratio > 0.5) timerColor = '#2ecc71';
+        else if (ratio > 0.2) timerColor = '#f39c12';
+        else timerColor = '#e74c3c';
+        this.timerText.setColor(timerColor);
 
-    if (ratio <= 0.2 && remaining > 0) {
-      const pulse = Math.sin(this.time.now / 150) * 0.3 + 0.7;
-      this.timerText.setAlpha(pulse);
-    } else {
-      this.timerText.setAlpha(1);
-    }
+        if (ratio <= 0.2 && remaining > 0) {
+          const pulse = Math.sin(this.time.now / 150) * 0.3 + 0.7;
+          this.timerText.setAlpha(pulse);
+        } else {
+          this.timerText.setAlpha(1);
+        }
+      }
 
-    if (remaining <= 0) {
-      this.finishLevel();
+      if (remaining <= 0) {
+        this.finishLevel();
+      }
+
+      const hasActiveItem = this.currentItem && this.currentItem.active;
+      const timeSinceLastSpawn = (this.time.now - this.lastSpawnTime) / 1000;
+      if (!hasActiveItem && !this.isSupervisorReview && this.itemQueue && this.itemQueue.length > 0 && elapsed > 1.5 && timeSinceLastSpawn > 0.8) {
+        console.log('Auto-spawning item - safety guard triggered, elapsed:', elapsed.toFixed(1), 'timeSinceLastSpawn:', timeSinceLastSpawn.toFixed(1));
+        this.spawnNextItem();
+      }
+    } catch (e) {
+      console.error('Error in update:', e);
     }
   }
-
-  private conveyorArrows!: Phaser.GameObjects.Graphics;
 
   private buildConveyorBelt() {
     this.conveyorBelt = this.add.graphics();
     this.conveyorArrows = this.add.graphics();
     this.drawConveyorBelt();
 
-    const beltLabel = this.add.text(GAME_WIDTH / 2, 30, '📤 传送带', {
+    const beltLabel = this.add.text(GAME_WIDTH / 2, 30, '馃摛 浼犻€佸甫', {
       fontSize: '16px',
       fontFamily: 'Arial, sans-serif',
       color: '#7f8c8d',
@@ -187,14 +218,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildHUD() {
-    this.scoreText = this.add.text(20, GAME_HEIGHT - 30, '🛡 安全分: 100', {
+    this.scoreText = this.add.text(20, GAME_HEIGHT - 30, '馃洝 瀹夊叏鍒? 100', {
       fontSize: '18px',
       fontFamily: 'Arial, sans-serif',
       color: '#2ecc71',
       fontStyle: 'bold',
     });
 
-    this.countText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 30, '📦 0 / 15', {
+    this.countText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 30, '馃摝 0 / 15', {
       fontSize: '18px',
       fontFamily: 'Arial, sans-serif',
       color: '#ecf0f1',
@@ -202,7 +233,7 @@ export class GameScene extends Phaser.Scene {
     });
     this.countText.setOrigin(0.5);
 
-    this.timerText = this.add.text(GAME_WIDTH - 20, GAME_HEIGHT - 30, `⏱ ${this.timeLimitSeconds}s`, {
+    this.timerText = this.add.text(GAME_WIDTH - 20, GAME_HEIGHT - 30, `鈴?${this.timeLimitSeconds}s`, {
       fontSize: '18px',
       fontFamily: 'Arial, sans-serif',
       color: '#f39c12',
@@ -239,142 +270,175 @@ export class GameScene extends Phaser.Scene {
     this.ruleHintText.setText(level.rules.join('\n'));
   }
 
+  private safeShuffle<T>(array: T[]): T[] {
+    try {
+      if (Phaser.Utils && Phaser.Utils.Array && typeof Phaser.Utils.Array.Shuffle === 'function') {
+        const copy = [...array];
+        Phaser.Utils.Array.Shuffle(copy);
+        return copy;
+      }
+    } catch (e) {
+      console.warn('Phaser shuffle failed, using fallback:', e);
+    }
+    const copy = [...array];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  }
+
   private generateItemQueue(level: typeof LEVELS[0]): ItemDef[] {
     const items = [...level.items];
     const distractorCount = Math.floor(this.targetCount * level.distractorRatio);
     const normalCount = this.targetCount - distractorCount;
 
-    const shuffled = Phaser.Utils.Array.Shuffle(items);
+    const shuffled = this.safeShuffle(items);
     const queue: ItemDef[] = [];
 
     for (let i = 0; i < normalCount && i < shuffled.length; i++) {
       queue.push(shuffled[i]);
     }
 
-    const distractorItems = Phaser.Utils.Array.Shuffle([...level.items]);
+    const distractorItems = this.safeShuffle([...level.items]);
     for (let i = 0; i < distractorCount; i++) {
       queue.push(distractorItems[i % distractorItems.length]);
     }
 
-    return Phaser.Utils.Array.Shuffle(queue);
+    return this.safeShuffle(queue);
   }
 
   private spawnNextItem() {
-    if (this.processedCount >= this.targetCount || this.itemQueue.length === 0) {
-      if (this.processedCount >= this.targetCount) {
-        this.finishLevel();
-      }
-      return;
-    }
-
-    if (this.isSupervisorReview) return;
-
-    const itemDef = this.itemQueue.shift()!;
-
-    const startX = -50;
-    const endX = GAME_WIDTH / 2;
-    const container = this.add.container(startX, 75) as LuggageItem;
-    container.itemDef = itemDef;
-    container.spawnTime = this.time.now;
-    container.dragStartX = endX;
-    container.dragStartY = container.y;
-
-    const bg = this.add.graphics();
-    this.drawItemShape(bg, itemDef, 36);
-    container.add(bg);
-
-    const shadow = this.add.graphics();
-    shadow.fillStyle(0x000000, 0.2);
-    shadow.fillEllipse(0, 38, 50, 12);
-    container.addAt(shadow, 0);
-
-    const icon = this.add.text(0, 0, itemDef.icon, {
-      fontSize: '28px',
-      fontFamily: 'Arial, sans-serif',
-    });
-    icon.setOrigin(0.5);
-    container.add(icon);
-
-    container.setSize(72, 72);
-    container.disableInteractive();
-
-    this.input.setDraggable(container);
-
-    container.on('dragstart', () => {
-      this.children.bringToTop(container);
-      container.dragStartX = container.x;
-      container.dragStartY = container.y;
-      if (container.bobTween) {
-        container.bobTween.stop();
-        container.bobTween = undefined;
-      }
-    });
-
-    container.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number, dragY: number) => {
-      container.x = dragX;
-      container.y = dragY;
-
-      this.zones.forEach(zone => {
-        const inZone = this.isInZone(container.x, container.y, zone);
-        zone.graphics.clear();
-        zone.graphics.fillStyle(ZONE_COLORS[zone.category], inZone ? 0.35 : 0.15);
-        zone.graphics.fillRoundedRect(zone.x, zone.y, zone.w, zone.h, 12);
-        zone.graphics.lineStyle(3, ZONE_COLORS[zone.category], inZone ? 1 : 0.7);
-        zone.graphics.strokeRoundedRect(zone.x, zone.y, zone.w, zone.h, 12);
-      });
-    });
-
-    container.on('dragend', () => {
-      this.zones.forEach(zone => {
-        zone.graphics.clear();
-        zone.graphics.fillStyle(ZONE_COLORS[zone.category], 0.15);
-        zone.graphics.fillRoundedRect(zone.x, zone.y, zone.w, zone.h, 12);
-        zone.graphics.lineStyle(3, ZONE_COLORS[zone.category], 0.7);
-        zone.graphics.strokeRoundedRect(zone.x, zone.y, zone.w, zone.h, 12);
-      });
-
-      let droppedZone: ItemCategory | null = null;
-      for (const zone of this.zones) {
-        if (this.isInZone(container.x, container.y, zone)) {
-          droppedZone = zone.category;
-          break;
+    try {
+      if (this.processedCount >= this.targetCount || this.itemQueue.length === 0) {
+        if (this.processedCount >= this.targetCount) {
+          this.finishLevel();
         }
+        return;
       }
 
-      if (droppedZone !== null) {
-        this.processItem(container, droppedZone);
-      } else {
-        this.tweens.add({
-          targets: container,
-          x: container.dragStartX,
-          y: container.dragStartY,
-          duration: 200,
-          ease: 'Power2',
-        });
-      }
-    });
+      if (this.isSupervisorReview) return;
 
-    this.itemLabel.setText(itemDef.label);
-    this.currentItem = container;
+      this.lastSpawnTime = this.time.now;
 
-    this.tweens.add({
-      targets: container,
-      x: endX,
-      duration: 700,
-      ease: 'Back.out',
-      onComplete: () => {
-        container.setInteractive({ draggable: true, useHandCursor: true });
-        container.spawnTime = this.time.now;
-        container.bobTween = this.tweens.add({
-          targets: container,
-          y: 70,
-          duration: 1000,
-          yoyo: true,
-          repeat: -1,
-          ease: 'Sine.inOut',
-        });
-      },
-    });
+      const itemDef = this.itemQueue.shift()!;
+
+      const startX = -50;
+      const endX = GAME_WIDTH / 2;
+      const container = this.add.container(startX, 75) as LuggageItem;
+      container.itemDef = itemDef;
+      container.spawnTime = this.time.now;
+      container.dragStartX = endX;
+      container.dragStartY = container.y;
+
+      const bg = this.add.graphics();
+      this.drawItemShape(bg, itemDef, 36);
+      container.add(bg);
+
+      const shadow = this.add.graphics();
+      shadow.fillStyle(0x000000, 0.2);
+      shadow.fillEllipse(0, 38, 50, 12);
+      container.addAt(shadow, 0);
+
+      const icon = this.add.text(0, 0, itemDef.icon, {
+        fontSize: '28px',
+        fontFamily: 'Arial, sans-serif',
+      });
+      icon.setOrigin(0.5);
+      container.add(icon);
+
+      container.setSize(72, 72);
+
+      this.itemLabel.setText(itemDef.label);
+      this.currentItem = container;
+
+      this.tweens.add({
+        targets: container,
+        x: endX,
+        duration: 700,
+        ease: 'Back.out',
+        onComplete: () => {
+          try {
+            container.setInteractive({ draggable: true, useHandCursor: true });
+
+            container.on('dragstart', () => {
+              this.children.bringToTop(container);
+              container.dragStartX = container.x;
+              container.dragStartY = container.y;
+              if (container.bobTween) {
+                container.bobTween.stop();
+                container.bobTween = undefined;
+              }
+            });
+
+            container.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number, dragY: number) => {
+              container.x = dragX;
+              container.y = dragY;
+
+              this.zones.forEach(zone => {
+                if (!zone.graphics || zone.graphics.active === false) return;
+                const inZone = this.isInZone(container.x, container.y, zone);
+                zone.graphics.clear();
+                zone.graphics.fillStyle(ZONE_COLORS[zone.category], inZone ? 0.35 : 0.15);
+                zone.graphics.fillRoundedRect(zone.x, zone.y, zone.w, zone.h, 12);
+                zone.graphics.lineStyle(3, ZONE_COLORS[zone.category], inZone ? 1 : 0.7);
+                zone.graphics.strokeRoundedRect(zone.x, zone.y, zone.w, zone.h, 12);
+              });
+            });
+
+            container.on('dragend', () => {
+              this.zones.forEach(zone => {
+                if (!zone.graphics || zone.graphics.active === false) return;
+                zone.graphics.clear();
+                zone.graphics.fillStyle(ZONE_COLORS[zone.category], 0.15);
+                zone.graphics.fillRoundedRect(zone.x, zone.y, zone.w, zone.h, 12);
+                zone.graphics.lineStyle(3, ZONE_COLORS[zone.category], 0.7);
+                zone.graphics.strokeRoundedRect(zone.x, zone.y, zone.w, zone.h, 12);
+              });
+
+              let droppedZone: ItemCategory | null = null;
+              for (const zone of this.zones) {
+                if (this.isInZone(container.x, container.y, zone)) {
+                  droppedZone = zone.category;
+                  break;
+                }
+              }
+
+              if (droppedZone !== null) {
+                this.processItem(container, droppedZone);
+              } else {
+                this.tweens.add({
+                  targets: container,
+                  x: container.dragStartX,
+                  y: container.dragStartY,
+                  duration: 200,
+                  ease: 'Power2',
+                });
+              }
+            });
+
+            container.spawnTime = this.time.now;
+            container.bobTween = this.tweens.add({
+              targets: container,
+              y: 70,
+              duration: 1000,
+              yoyo: true,
+              repeat: -1,
+              ease: 'Sine.inOut',
+            });
+          } catch (e) {
+            console.error('Error in spawn animation complete:', e);
+          }
+        },
+      });
+    } catch (e) {
+      console.error('Error in spawnNextItem:', e);
+      this.time.addEvent({
+        delay: 1000,
+        callback: this.spawnNextItem,
+        callbackScope: this,
+      });
+    }
   }
 
   private drawItemShape(g: Phaser.GameObjects.Graphics, item: ItemDef, size: number) {
@@ -467,12 +531,12 @@ export class GameScene extends Phaser.Scene {
 
     if (correct) {
       this.consecutiveErrors = 0;
-      this.showFeedback('✅ 正确!', 0x27ae60);
+      this.showFeedback('鉁?姝ｇ‘!', 0x27ae60);
       this.playCorrectEffect(item);
     } else {
       this.consecutiveErrors++;
       this.safetyScore = Math.max(0, this.safetyScore - 10);
-      this.showFeedback('❌ 错误! -10分', 0xe74c3c);
+      this.showFeedback('鉂?閿欒! -10鍒?, 0xe74c3c);
       this.updateHUD();
 
       if (this.consecutiveErrors >= 2) {
@@ -484,18 +548,26 @@ export class GameScene extends Phaser.Scene {
       this.playWrongEffect(item, () => {
         this.animateItemToZone(item, assignedCategory, correct);
       });
-      this.time.delayedCall(900, () => {
-        this.spawnNextItem();
+      this.time.addEvent({
+        delay: 900,
+        callback: this.spawnNextItem,
+        callbackScope: this,
       });
       return;
     }
 
-    this.time.delayedCall(280, () => {
-      this.animateItemToZone(item, assignedCategory, correct);
+    this.time.addEvent({
+      delay: 280,
+      callback: () => {
+        this.animateItemToZone(item, assignedCategory, correct);
+      },
+      callbackScope: this,
     });
 
-    this.time.delayedCall(700, () => {
-      this.spawnNextItem();
+    this.time.addEvent({
+      delay: 700,
+      callback: this.spawnNextItem,
+      callbackScope: this,
     });
   }
 
@@ -504,7 +576,7 @@ export class GameScene extends Phaser.Scene {
     this.supervisorReviews++;
     this.consecutiveErrors = 0;
 
-    this.showFeedback('⚠ 主管复核中...', 0xf39c12);
+    this.showFeedback('鈿?涓荤澶嶆牳涓?..', 0xf39c12);
 
     const overlay = this.add.container(GAME_WIDTH / 2, GAME_HEIGHT / 2);
     overlay.setDepth(100);
@@ -516,7 +588,7 @@ export class GameScene extends Phaser.Scene {
     bg.strokeRect(-200, -60, 400, 120);
     overlay.add(bg);
 
-    const title = this.add.text(0, -30, '👮 主管复核', {
+    const title = this.add.text(0, -30, '馃懏 涓荤澶嶆牳', {
       fontSize: '24px',
       fontFamily: 'Arial, sans-serif',
       color: '#f39c12',
@@ -527,7 +599,7 @@ export class GameScene extends Phaser.Scene {
 
     const correctCat = item.itemDef.category;
     const correctLabel = ZONE_LABELS[correctCat];
-    const msg = this.add.text(0, 10, `${item.itemDef.label} 应归入 ${correctLabel}`, {
+    const msg = this.add.text(0, 10, `${item.itemDef.label} 搴斿綊鍏?${correctLabel}`, {
       fontSize: '16px',
       fontFamily: 'Arial, sans-serif',
       color: '#ecf0f1',
@@ -546,7 +618,7 @@ export class GameScene extends Phaser.Scene {
     this.supervisorOverlay = overlay;
 
     let countdown = 3;
-    timer.setText(`${countdown}秒后继续...`);
+    timer.setText(`${countdown}绉掑悗缁х画...`);
 
     const interval = this.time.addEvent({
       delay: 1000,
@@ -554,14 +626,16 @@ export class GameScene extends Phaser.Scene {
       callback: () => {
         countdown--;
         if (countdown > 0) {
-          timer.setText(`${countdown}秒后继续...`);
+          timer.setText(`${countdown}绉掑悗缁х画...`);
         } else {
           overlay.destroy();
           this.isSupervisorReview = false;
           this.animateItemToZone(item, item.itemDef.category, false);
           this.updateHUD();
-          this.time.delayedCall(300, () => {
-            this.spawnNextItem();
+          this.time.addEvent({
+            delay: 300,
+            callback: this.spawnNextItem,
+            callbackScope: this,
           });
         }
       },
@@ -638,15 +712,18 @@ export class GameScene extends Phaser.Scene {
       ease: 'Power2',
       onComplete: () => {
         item.destroy();
+        if (this.currentItem === item) {
+          this.currentItem = null as any;
+        }
       },
     });
   }
 
   private updateHUD() {
     const scoreColor = this.safetyScore > 70 ? '#2ecc71' : this.safetyScore > 40 ? '#f39c12' : '#e74c3c';
-    this.scoreText.setText(`🛡 安全分: ${this.safetyScore}`);
+    this.scoreText.setText(`馃洝 瀹夊叏鍒? ${this.safetyScore}`);
     this.scoreText.setColor(scoreColor);
-    this.countText.setText(`📦 ${this.processedCount} / ${this.targetCount}`);
+    this.countText.setText(`馃摝 ${this.processedCount} / ${this.targetCount}`);
   }
 
   private finishLevel() {
